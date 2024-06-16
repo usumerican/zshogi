@@ -1,0 +1,22 @@
+{
+  "name": "zshogi",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "license": "GPL-3.0",
+  "scripts": {
+    "zig:test": "zig test src/wasm.zig",
+    "zig:wasm": "zig build wasm -Dstrip=true --release=fast --prefix dist --verbose --summary all",
+    "dev": "vite",
+    "lib": "vite build --mode lib",
+    "test": "vitest run",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "eslint": "^9.5.0",
+    "prettier": "^3.3.2",
+    "vite": "^5.3.1",
+    "vitest": "^1.6.0"
+  }
+}

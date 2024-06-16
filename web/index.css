@@ -1,0 +1,71 @@
+html {
+  height: 100%;
+  overflow: hidden;
+  touch-action: manipulation;
+}
+body {
+  max-width: 100vh;
+  height: 100%;
+  margin: 0 auto;
+}
+* {
+  box-sizing: border-box;
+  color: #000;
+  font:
+    1rem 'Helvetica Neue',
+    Arial,
+    'Apple Color Emoji',
+    'Segoe UI Emoji',
+    sans-serif;
+  margin: 0;
+  overflow: hidden;
+}
+:root {
+  --background: #eee;
+  --border: 1px solid #999;
+  --gap: 2px;
+  --padding: 2px;
+}
+button {
+  appearance: none;
+  background: var(--background);
+  border: var(--border);
+  border-radius: var(--gap);
+  cursor: pointer;
+}
+button:active {
+  opacity: 0.8;
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+pre {
+  background: var(--background);
+  border: var(--border);
+  padding: var(--padding);
+  overflow-y: scroll;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+textarea {
+  border: var(--border);
+  padding: var(--padding);
+  overflow-y: scroll;
+  resize: none;
+}
+.ToolBar {
+  display: grid;
+  gap: var(--gap);
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  place-items: stretch;
+}
+#app {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  gap: var(--gap);
+  padding: var(--padding);
+  grid-template-rows: 2fr 1fr 3rem;
+}
