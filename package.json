@@ -1,9 +1,32 @@
 {
   "name": "zshogi",
-  "version": "0.0.1",
-  "private": true,
+  "version": "0.0.2",
   "type": "module",
   "license": "GPL-3.0",
+  "author": "usumerican",
+  "description": "A simple USI shogi engine implemented in Zig",
+  "keywords": [
+    "chess",
+    "shogi",
+    "webassembly",
+    "zig"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/usumerican/zshogi.git"
+  },
+  "homepage": "https://usumerican.github.io/zshogi/",
+  "files": [
+    "dist/lib"
+  ],
+  "main": "./dist/lib/zshogi.umd.cjs",
+  "module": "./dist/lib/zshogi.js",
+  "exports": {
+    ".": {
+      "import": "./dist/lib/zshogi.js",
+      "require": "./dist/lib/zshogi.umd.cjs"
+    }
+  },
   "scripts": {
     "zig:test": "zig test src/wasm.zig",
     "zig:wasm": "zig build wasm -Dstrip=true --release=fast --prefix dist --verbose --summary all",

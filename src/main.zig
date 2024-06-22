@@ -147,11 +147,29 @@ const Square = enum {
             return @enumFromInt(@intFromEnum(self) + 1);
         }
     }
+
+    fn right(self: @This()) @This() {
+        std.debug.assert(self.file() != .f1);
+        return @enumFromInt(@intFromEnum(self) - Rank.N);
+    }
+
+    fn left(self: @This()) @This() {
+        std.debug.assert(self.file() != .f9);
+        return @enumFromInt(@intFromEnum(self) + Rank.N);
+    }
 };
 
 test "Square.front" {
     try tst.expectEqual(Square.sq54, Square.sq55.front(.black));
     try tst.expectEqual(Square.sq56, Square.sq55.front(.white));
+}
+
+test "Square.right" {
+    try tst.expectEqual(Square.sq45, Square.sq55.right());
+}
+
+test "Square.left" {
+    try tst.expectEqual(Square.sq65, Square.sq55.left());
 }
 
 const Direction = enum {
@@ -173,6 +191,8 @@ const PieceRaw = enum {
     none,
     r_pawn, r_lance, r_knight, r_silver, r_bishop, r_rook, r_gold,
     // zig fmt: on
+
+    const N = 7;
 
     fn toUsi(self: @This()) u8 {
         return "0PLNSBRG"[@intFromEnum(self)];
@@ -1280,7 +1300,7 @@ fn pieceEffectBB(pc: Piece, sq: Square, occ: Bitboard) Bitboard {
     };
 }
 
-const SQUARES_DIRECTION_BB = _: {
+const SQUARES_DIRECTION = _: {
     @setEvalBranchQuota(16000);
     var tbl: [Square.N + 1][Square.N + 1]Direction = .{.{Direction.none} ** (Square.N + 1)} ** (Square.N + 1);
     for (0..Square.N) |sqi| {
@@ -1294,26 +1314,26 @@ const SQUARES_DIRECTION_BB = _: {
     break :_ tbl;
 };
 
-fn squaresDirectionBB(sq1: Square, sq2: Square) Direction {
-    return SQUARES_DIRECTION_BB[@intFromEnum(sq1)][@intFromEnum(sq2)];
+fn squaresDirection(sq1: Square, sq2: Square) Direction {
+    return SQUARES_DIRECTION[@intFromEnum(sq1)][@intFromEnum(sq2)];
 }
 
-test "squaresDirectionBB" {
-    try tst.expectEqual(Direction.none, squaresDirectionBB(.none, .none));
-    try tst.expectEqual(Direction.right_up, squaresDirectionBB(.sq55, .sq11));
-    try tst.expectEqual(Direction.right, squaresDirectionBB(.sq55, .sq15));
-    try tst.expectEqual(Direction.right_down, squaresDirectionBB(.sq55, .sq19));
-    try tst.expectEqual(Direction.up, squaresDirectionBB(.sq55, .sq51));
-    try tst.expectEqual(Direction.none, squaresDirectionBB(.sq55, .sq55));
-    try tst.expectEqual(Direction.down, squaresDirectionBB(.sq55, .sq59));
-    try tst.expectEqual(Direction.left_up, squaresDirectionBB(.sq55, .sq91));
-    try tst.expectEqual(Direction.left, squaresDirectionBB(.sq55, .sq95));
-    try tst.expectEqual(Direction.left_down, squaresDirectionBB(.sq55, .sq99));
+test "squaresDirection" {
+    try tst.expectEqual(Direction.none, squaresDirection(.none, .none));
+    try tst.expectEqual(Direction.right_up, squaresDirection(.sq55, .sq11));
+    try tst.expectEqual(Direction.right, squaresDirection(.sq55, .sq15));
+    try tst.expectEqual(Direction.right_down, squaresDirection(.sq55, .sq19));
+    try tst.expectEqual(Direction.up, squaresDirection(.sq55, .sq51));
+    try tst.expectEqual(Direction.none, squaresDirection(.sq55, .sq55));
+    try tst.expectEqual(Direction.down, squaresDirection(.sq55, .sq59));
+    try tst.expectEqual(Direction.left_up, squaresDirection(.sq55, .sq91));
+    try tst.expectEqual(Direction.left, squaresDirection(.sq55, .sq95));
+    try tst.expectEqual(Direction.left_down, squaresDirection(.sq55, .sq99));
 }
 
 fn squaresAligned(from: Square, to: Square, ksq: Square) bool {
-    const d = squaresDirectionBB(from, ksq);
-    return if (d != .none) d == squaresDirectionBB(to, ksq) else false;
+    const d = squaresDirection(from, ksq);
+    return if (d != .none) d == squaresDirection(to, ksq) else false;
 }
 
 test "squaresAligned" {
@@ -1331,11 +1351,11 @@ const BETWEEN_BB = _: {
         const sq1: Square = @enumFromInt(sqi1);
         for (0..Square.N) |sqi2| {
             const sq2: Square = @enumFromInt(sqi2);
-            const d = squaresDirectionBB(sq1, sq2);
+            const d = squaresDirection(sq1, sq2);
             if (d == .none) {
                 continue;
             }
-            tbl[sqi1][sqi2] = directionBB(d, sq1) & directionBB(squaresDirectionBB(sq2, sq1), sq2);
+            tbl[sqi1][sqi2] = directionBB(d, sq1) & directionBB(squaresDirection(sq2, sq1), sq2);
         }
     }
     break :_ tbl;
@@ -1379,6 +1399,202 @@ test "betweenBB" {
     try tst.expectEqual(
         bbInit(0b000000000_010000000_001000000_000100000_000000000_000000000_000000000_000000000_000000000),
         betweenBB(.sq55, .sq99),
+    );
+}
+
+const LINE_BB = _: {
+    @setEvalBranchQuota(16000);
+    var tbl: [Square.N + 1][Square.N + 1]Bitboard = .{.{EMPTY_BB} ** (Square.N + 1)} ** (Square.N + 1);
+    for (0..Square.N) |sqi1| {
+        const sq1: Square = @enumFromInt(sqi1);
+        for (0..Square.N) |sqi2| {
+            const sq2: Square = @enumFromInt(sqi2);
+            const d = squaresDirection(sq1, sq2);
+            tbl[sqi1][sqi2] = switch (d) {
+                .right_up, .left_down => inclineBB(sq1),
+                .right, .left => RANK_BB[@intFromEnum(sq1.rank())],
+                .right_down, .left_up => declineBB(sq1),
+                .up, .down => FILE_BB[@intFromEnum(sq1.file())],
+                else => EMPTY_BB,
+            };
+        }
+    }
+    break :_ tbl;
+};
+
+fn lineBB(sq1: Square, sq2: Square) Bitboard {
+    return LINE_BB[@intFromEnum(sq1)][@intFromEnum(sq2)];
+}
+
+test "lineBB" {
+    try tst.expectEqual(EMPTY_BB, lineBB(.sq55, .none));
+    try tst.expectEqual(
+        bbInit(0b100000000_010000000_001000000_000100000_000010000_000001000_000000100_000000010_000000001),
+        lineBB(.sq55, .sq11),
+    );
+    try tst.expectEqual(
+        bbInit(0b000010000_000010000_000010000_000010000_000010000_000010000_000010000_000010000_000010000),
+        lineBB(.sq55, .sq15),
+    );
+    try tst.expectEqual(
+        bbInit(0b000000001_000000010_000000100_000001000_000010000_000100000_001000000_010000000_100000000),
+        lineBB(.sq55, .sq19),
+    );
+    try tst.expectEqual(
+        bbInit(0b000000000_000000000_000000000_000000000_111111111_000000000_000000000_000000000_000000000),
+        lineBB(.sq55, .sq51),
+    );
+    try tst.expectEqual(EMPTY_BB, lineBB(.sq55, .sq55));
+    try tst.expectEqual(
+        bbInit(0b000000000_000000000_000000000_000000000_111111111_000000000_000000000_000000000_000000000),
+        lineBB(.sq55, .sq59),
+    );
+    try tst.expectEqual(
+        bbInit(0b000000001_000000010_000000100_000001000_000010000_000100000_001000000_010000000_100000000),
+        lineBB(.sq55, .sq91),
+    );
+    try tst.expectEqual(
+        bbInit(0b000010000_000010000_000010000_000010000_000010000_000010000_000010000_000010000_000010000),
+        lineBB(.sq55, .sq95),
+    );
+    try tst.expectEqual(
+        bbInit(0b100000000_010000000_001000000_000100000_000010000_000001000_000000100_000000010_000000001),
+        lineBB(.sq55, .sq99),
+    );
+}
+
+const CHECK_CANDIDATE_BB = _: {
+    @setEvalBranchQuota(64000);
+    var tbl = std.mem.zeroes([Square.N + 1][PieceRaw.N][Color.N]Bitboard);
+    for (Color.COLORS) |US| {
+        const THEM = US.turn();
+        const ENEMY_BB = topRanksBB(US, 3);
+        for (0..Square.N) |ksqi| {
+            const ksq: Square = @enumFromInt(ksqi);
+            const enemy_gold = ENEMY_BB & goldEffectBB(THEM, ksq);
+            var candidates = EMPTY_BB;
+            var to_bb = pawnEffectBB(THEM, ksq);
+            while (bbAny(to_bb)) {
+                candidates |= pawnEffectBB(THEM, bbPop(&to_bb));
+            }
+            to_bb = enemy_gold;
+            while (bbAny(to_bb)) {
+                candidates |= pawnEffectBB(THEM, bbPop(&to_bb));
+            }
+            tbl[ksqi][@intFromEnum(PieceRaw.r_pawn) - 1][@intFromEnum(US)] = candidates & ~squareBB(ksq);
+
+            candidates = forwardFileBB(THEM, ksq);
+            if (bbAny(ENEMY_BB & squareBB(ksq))) {
+                if (ksq.file() != .f1) {
+                    candidates |= forwardFileBB(THEM, ksq.right());
+                }
+                if (ksq.file() != .f9) {
+                    candidates |= forwardFileBB(THEM, ksq.left());
+                }
+            }
+            tbl[ksqi][@intFromEnum(PieceRaw.r_lance) - 1][@intFromEnum(US)] = candidates & ~squareBB(ksq);
+
+            candidates = EMPTY_BB;
+            to_bb = knightEffectBB(THEM, ksq) | enemy_gold;
+            while (bbAny(to_bb)) {
+                candidates |= knightEffectBB(THEM, bbPop(&to_bb));
+            }
+            tbl[ksqi][@intFromEnum(PieceRaw.r_knight) - 1][@intFromEnum(US)] = candidates & ~squareBB(ksq);
+
+            candidates = EMPTY_BB;
+            to_bb = silverEffectBB(THEM, ksq);
+            while (bbAny(to_bb)) {
+                candidates |= silverEffectBB(THEM, bbPop(&to_bb));
+            }
+            to_bb = enemy_gold;
+            while (bbAny(to_bb)) {
+                candidates |= silverEffectBB(THEM, bbPop(&to_bb));
+            }
+            to_bb = goldEffectBB(THEM, ksq);
+            while (bbAny(to_bb)) {
+                candidates |= ENEMY_BB & silverEffectBB(THEM, bbPop(&to_bb));
+            }
+            tbl[ksqi][@intFromEnum(PieceRaw.r_silver) - 1][@intFromEnum(US)] = candidates & ~squareBB(ksq);
+
+            candidates = EMPTY_BB;
+            to_bb = diagonalBB(ksq);
+            while (bbAny(to_bb)) {
+                candidates |= diagonalBB(bbPop(&to_bb));
+            }
+            to_bb = ENEMY_BB & kingEffectBB(ksq);
+            while (bbAny(to_bb)) {
+                candidates |= diagonalBB(bbPop(&to_bb));
+            }
+            to_bb = kingEffectBB(ksq);
+            while (bbAny(to_bb)) {
+                candidates |= ENEMY_BB & diagonalBB(bbPop(&to_bb));
+            }
+            tbl[ksqi][@intFromEnum(PieceRaw.r_bishop) - 1][@intFromEnum(US)] = candidates & ~squareBB(ksq);
+
+            // 飛、龍はどのマスからでも王手できるので省略し、飛の位置には馬の王手候補を格納する。
+            candidates = EMPTY_BB;
+            to_bb = horseEffectBB(ksq, EMPTY_BB);
+            while (bbAny(to_bb)) {
+                candidates |= horseEffectBB(bbPop(&to_bb), EMPTY_BB);
+            }
+            tbl[ksqi][@intFromEnum(PieceRaw.r_rook) - 1][@intFromEnum(US)] = candidates & ~squareBB(ksq);
+
+            candidates = EMPTY_BB;
+            to_bb = goldEffectBB(THEM, ksq);
+            while (bbAny(to_bb)) {
+                candidates |= goldEffectBB(THEM, bbPop(&to_bb));
+            }
+            tbl[ksqi][@intFromEnum(PieceRaw.r_gold) - 1][@intFromEnum(US)] = candidates & ~squareBB(ksq);
+        }
+    }
+    break :_ tbl;
+};
+
+// 飛を指定した場合、馬の王手候補を返す。
+fn checkCandidateBB(comptime US: Color, comptime PR: PieceRaw, sq: Square) Bitboard {
+    return CHECK_CANDIDATE_BB[@intFromEnum(sq)][@intFromEnum(PR) - 1][@intFromEnum(US)];
+}
+
+test "checkCandidateBB" {
+    try tst.expectEqual(
+        bbInit(0b000000000_000000000_000000000_000000110_000000100_000000110_000000000_000000000_000000000),
+        checkCandidateBB(.black, .r_pawn, .sq51),
+    );
+    try tst.expectEqual(
+        bbInit(0b000000000_000000000_000000000_000000000_001000000_000000000_000000000_000000000_000000000),
+        checkCandidateBB(.black, .r_pawn, .sq55),
+    );
+    try tst.expectEqual(
+        bbInit(0b000000000_000000000_000000000_111111110_111111110_111111110_000000000_000000000_000000000),
+        checkCandidateBB(.black, .r_lance, .sq51),
+    );
+    try tst.expectEqual(
+        bbInit(0b000000000_000000000_000011100_000001000_000011100_000001000_000011100_000000000_000000000),
+        checkCandidateBB(.black, .r_knight, .sq51),
+    );
+    try tst.expectEqual(
+        bbInit(0b000000000_000000000_000000111_000000111_000000110_000000111_000000111_000000000_000000000),
+        checkCandidateBB(.black, .r_silver, .sq51),
+    );
+    try tst.expectEqual(
+        bbInit(0b000000000_000000000_001010100_001010100_001000100_001010100_001010100_000000000_000000000),
+        checkCandidateBB(.black, .r_silver, .sq55),
+    );
+    try tst.expectEqual(
+        bbInit(0b000000000_000000000_001110000_001111000_001100100_001111000_001110000_000000000_000000000),
+        checkCandidateBB(.black, .r_gold, .sq55),
+    );
+    try tst.expectEqual(
+        bbInit(0b101111101_010111110_101011111_010101111_101010110_010101111_101011111_010111110_101111101),
+        checkCandidateBB(.black, .r_bishop, .sq51),
+    );
+    try tst.expectEqual(
+        bbInit(0b101010111_010101111_101010111_010101110_101000101_010101110_101010111_010101111_101010111),
+        checkCandidateBB(.black, .r_bishop, .sq55),
+    );
+    try tst.expectEqual(
+        bbInit(0b111010111_111101111_111111111_011111110_101101101_011111110_111111111_111101111_111010111),
+        checkCandidateBB(.black, .r_rook, .sq55),
     );
 }
 
@@ -2020,7 +2236,7 @@ const Position = struct {
                 self.state.checkers_bb = squareBB(to) & prev_st.check_squares_bb[@intFromEnum(after_pc.pieceType())];
                 const ksq = self.kingSquare(THEM);
                 if (bbAny(squareBB(from) & prev_st.blockers_bb[@intFromEnum(THEM)]) and !squaresAligned(from, to, ksq)) {
-                    self.state.checkers_bb |= self.colorBB(US) & directionEffectBB(squaresDirectionBB(ksq, from), from, self.occBB());
+                    self.state.checkers_bb |= self.colorBB(US) & directionEffectBB(squaresDirection(ksq, from), from, self.occBB());
                 }
             } else {
                 self.state.checkers_bb = EMPTY_BB;
@@ -2076,11 +2292,11 @@ const Position = struct {
         }
     }
 
-    fn isLegalDrop(self: @This(), comptime US: Color, to: Square) bool {
+    fn isPawnDropMate(self: @This(), comptime US: Color, to: Square) bool {
         const THEM = comptime US.turn();
         const occ = self.occBB();
         if (!bbAny(self.attackersTo(US, to, occ))) {
-            return true;
+            return false;
         }
         const hd_bb = self.typeBB(.horse) | self.typeBB(.dragon);
         const enemy_bb =
@@ -2091,27 +2307,52 @@ const Position = struct {
             (self.typeBB(.rook_dragon) & rookEffectBB(to, occ))) &
             self.colorBB(THEM);
         if (bbAny(enemy_bb & (fileBB(to.file()) | ~self.blockersBB(THEM)))) {
-            return true;
+            return false;
         }
         const escape_occ = squareBB(to) ^ occ;
         var escape_bb = ~self.colorBB(THEM) & kingEffectBB(self.kingSquare(THEM)) ^ squareBB(to);
         while (bbAny(escape_bb)) {
             const sq = bbPop(&escape_bb);
             if (!bbAny(self.attackersTo(US, sq, escape_occ))) {
-                return true;
+                return false;
             }
         }
-        return false;
+        return true;
     }
 
-    fn isLegal(self: @This(), comptime US: Color, m: Move) bool {
+    fn isPawnDropValid(self: @This(), comptime US: Color, to: Square) bool {
         const THEM = comptime US.turn();
+        return !(bbAny(self.colorTypeBB(US, .pawn) & fileBB(to.file())) or
+            (@reduce(.And, pawnEffectBB(US, to) == squareBB(self.kingSquare(THEM))) and self.isPawnDropMate(US, to)));
+    }
+
+    fn isMoveEvasive(self: @This(), comptime US: Color, m: Move) bool {
+        std.debug.assert(self.inCheck());
+        if (moveAfterPiece(m).pieceType() != .king) {
+            var checkers = self.checkersBB();
+            const csq = bbPop(&checkers);
+            if (bbAny(checkers)) {
+                return false;
+            }
+            const to = moveTo(m);
+            if (to == csq) {
+                return true;
+            }
+            if (!bbAny(betweenBB(csq, self.kingSquare(US)) & squareBB(to))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    fn isMoveSafe(self: @This(), comptime US: Color, m: Move) bool {
         if (moveDropped(m)) {
             return true;
         }
         const to = moveTo(m);
         const ksq = self.kingSquare(US);
         if (ksq == moveFrom(m)) {
+            const THEM = comptime US.turn();
             return !bbAny(self.attackersTo(THEM, to, self.occBB() ^ squareBB(ksq)));
         }
         const from = moveFrom(m);
@@ -2121,10 +2362,13 @@ const Position = struct {
 
 pub const DEFAULT_SFEN = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1";
 pub const MATSURI_SFEN = "l6nl/5+P1gk/2np1S3/p1p4Pp/3P2Sp1/1PPb2P1P/P5GS1/R8/LN4bKL w RGgsn5p 1";
+const DROPS_SFEN = "9/9/4k4/9/9/9/9/9/8P b RBGSNLP 1";
 const MAX_MOVES_SFEN = "R8/2K1S1SSk/4B4/9/9/9/9/9/1L1L1L3 b RBGSNLP3g3n17p 1";
 const PAWN_DROP_MATE_SFEN = "6Rsk/9/7S1/9/9/9/9/9/9 b P 1";
 const EVASIONS_SFEN = "9/4l4/5G3/4KB+r2/9/9/9/9/9 b P 1";
 const CAPTURES_SFEN = "9/9/3pp4/3GPP3/9/9/9/9/9 b - 1";
+const MAX_CHECKS_SFEN = "+B7+B/7R1/2R6/9/3Sk1G2/6G2/3+PS1+P2/9/4L1N1K b GSNLPgs2n2l15p 1";
+const DOUBLE_CHECKED_SFEN = "9/9/2k1r4/5+B3/4K1r2/9/6B2/9/9 b P 1";
 
 test "Position.fromSfen" {
     const sfen = MATSURI_SFEN;
@@ -2220,23 +2464,61 @@ test "Position.doMove" {
     try tst.expectEqualStrings(sfen, buf.items);
 }
 
-test "Position.isLegalDrop" {
+test "Position.isPawnDropMate" {
     const data_list = [_]struct {
         sfen: Str,
         to: Square,
-        legal: bool,
+        expected: bool,
     }{
-        .{ .sfen = PAWN_DROP_MATE_SFEN, .to = .sq12, .legal = false },
-        .{ .sfen = "8k/9/7L1/9/9/9/9/9/9 b P 1", .to = .sq12, .legal = true }, // capture by king
-        .{ .sfen = "6sk1/5R3/8L/9/9/9/9/9/9 b P 1", .to = .sq22, .legal = true }, // capture by piece
-        .{ .sfen = "8k/6+R2/8g/8L/9/9/9/9/9 b P 1", .to = .sq12, .legal = true }, // capture by pinner
-        .{ .sfen = "6pkp/5R3/9/9/9/9/9/9/9 b P 1", .to = .sq22, .legal = true }, // escape because of pawn drop
+        .{ .sfen = PAWN_DROP_MATE_SFEN, .to = .sq12, .expected = true },
+        .{ .sfen = "8k/9/7L1/9/9/9/9/9/9 b P 1", .to = .sq12, .expected = false }, // capture by king
+        .{ .sfen = "6sk1/5R3/8L/9/9/9/9/9/9 b P 1", .to = .sq22, .expected = false }, // capture by piece
+        .{ .sfen = "8k/6+R2/8g/8L/9/9/9/9/9 b P 1", .to = .sq12, .expected = false }, // capture by pinner
+        .{ .sfen = "6pkp/5R3/9/9/9/9/9/9/9 b P 1", .to = .sq22, .expected = false }, // escape because of pawn drop
     };
     for (data_list) |data| {
         var st = StateInfo{};
         const pos = Position.fromSfen(data.sfen, &st);
-        try tst.expectEqual(data.legal, pos.isLegalDrop(.black, data.to));
+        try tst.expectEqual(data.expected, pos.isPawnDropMate(.black, data.to));
     }
+}
+
+test "Position.isMoveEvasive" {
+    const data_list = [_]struct {
+        sfen: Str,
+        move: Move,
+        expected: bool,
+    }{
+        .{ .sfen = EVASIONS_SFEN, .move = moveInitDrop(.sq53, .b_pawn), .expected = true },
+        .{ .sfen = EVASIONS_SFEN, .move = moveInitDrop(.sq55, .b_pawn), .expected = false },
+        .{ .sfen = EVASIONS_SFEN, .move = moveInit(.sq43, .sq52, .b_gold), .expected = true },
+        .{ .sfen = EVASIONS_SFEN, .move = moveInit(.sq43, .sq53, .b_gold), .expected = true },
+        .{ .sfen = EVASIONS_SFEN, .move = moveInit(.sq43, .sq42, .b_gold), .expected = false },
+        .{ .sfen = EVASIONS_SFEN, .move = moveInit(.sq54, .sq64, .b_king), .expected = true },
+        .{ .sfen = DOUBLE_CHECKED_SFEN, .move = moveInitDrop(.sq45, .b_pawn), .expected = false },
+        .{ .sfen = DOUBLE_CHECKED_SFEN, .move = moveInitDrop(.sq54, .b_pawn), .expected = false },
+        .{ .sfen = DOUBLE_CHECKED_SFEN, .move = moveInit(.sq44, .sq35, .b_horse), .expected = false },
+        .{ .sfen = DOUBLE_CHECKED_SFEN, .move = moveInit(.sq44, .sq53, .b_horse), .expected = false },
+        .{ .sfen = DOUBLE_CHECKED_SFEN, .move = moveInit(.sq55, .sq46, .b_king), .expected = true },
+        .{ .sfen = DOUBLE_CHECKED_SFEN, .move = moveInit(.sq55, .sq66, .b_king), .expected = true },
+    };
+    for (data_list) |data| {
+        var st = StateInfo{};
+        const pos = Position.fromSfen(data.sfen, &st);
+        try tst.expectEqual(data.expected, pos.isMoveEvasive(.black, data.move));
+    }
+}
+
+test "Position.isMoveSafe" {
+    var st = StateInfo{};
+    const pos = Position.fromSfen("4ll3/9/4R4/9/4K4/9/9/9/9 b P 1", &st);
+    try tst.expectEqual(true, pos.isMoveSafe(.black, moveInitDrop(.sq43, .b_pawn)));
+    try tst.expectEqual(false, pos.isMoveSafe(.black, moveInit(.sq53, .sq43, .b_rook)));
+    try tst.expectEqual(true, pos.isMoveSafe(.black, moveInit(.sq53, .sq51, .b_rook)));
+    try tst.expectEqual(true, pos.isMoveSafe(.black, moveInit(.sq53, .sq52, .b_rook)));
+    try tst.expectEqual(true, pos.isMoveSafe(.black, moveInit(.sq53, .sq54, .b_rook)));
+    try tst.expectEqual(false, pos.isMoveSafe(.black, moveInit(.sq55, .sq45, .b_king)));
+    try tst.expectEqual(true, pos.isMoveSafe(.black, moveInit(.sq55, .sq54, .b_king)));
 }
 
 const MAX_MOVES = 600;
@@ -2298,15 +2580,8 @@ const MoveGenType = enum {
     }
 };
 
-fn generateDropMoves(mlist: *MoveList, comptime US: Color, pos: *const Position, target: Bitboard) void {
+fn generateDrops(mlist: *MoveList, comptime US: Color, pos: *const Position, target: Bitboard) void {
     const THEM = comptime US.turn();
-    const PAWN = comptime Piece.initPieceRaw(US, .r_pawn);
-    const LANCE = comptime Piece.init(US, .lance);
-    const KNIGHT = comptime Piece.init(US, .knight);
-    const SILVER = comptime Piece.init(US, .silver);
-    const BISHOP = comptime Piece.init(US, .bishop);
-    const ROOK = comptime Piece.init(US, .rook);
-    const GOLD = comptime Piece.init(US, .gold);
     const h = pos.hands[@intFromEnum(US)];
     if (h == HAND_EMPTY) {
         return;
@@ -2315,10 +2590,11 @@ fn generateDropMoves(mlist: *MoveList, comptime US: Color, pos: *const Position,
         var to_bb = pawnDropMaskBB(US, pos.colorTypeBB(US, .pawn)) & target;
         const pe = pawnEffectBB(THEM, pos.kingSquare(THEM));
         if (bbAny(to_bb & pe)) {
-            if (!pos.isLegalDrop(US, bbPeek(to_bb))) {
+            if (pos.isPawnDropMate(US, bbPeek(to_bb))) {
                 to_bb ^= pe;
             }
         }
+        const PAWN = comptime Piece.init(US, .pawn);
         while (bbAny(to_bb)) {
             const to = bbPop(&to_bb);
             mlist.append(moveInitDrop(to, PAWN));
@@ -2330,29 +2606,29 @@ fn generateDropMoves(mlist: *MoveList, comptime US: Color, pos: *const Position,
     var drops: [6]Move = undefined;
     var num: usize = 0;
     if (handAny(h, .r_knight)) {
-        drops[num] = moveInitDrop(.sq11, KNIGHT);
+        drops[num] = comptime moveInitDrop(.sq11, Piece.init(US, .knight));
         num += 1;
     }
     const next_to_knight = num;
     if (handAny(h, .r_lance)) {
-        drops[num] = moveInitDrop(.sq11, LANCE);
+        drops[num] = comptime moveInitDrop(.sq11, Piece.init(US, .lance));
         num += 1;
     }
     const next_to_lance = num;
     if (handAny(h, .r_silver)) {
-        drops[num] = moveInitDrop(.sq11, SILVER);
+        drops[num] = comptime moveInitDrop(.sq11, Piece.init(US, .silver));
         num += 1;
     }
     if (handAny(h, .r_bishop)) {
-        drops[num] = moveInitDrop(.sq11, BISHOP);
+        drops[num] = comptime moveInitDrop(.sq11, Piece.init(US, .bishop));
         num += 1;
     }
     if (handAny(h, .r_rook)) {
-        drops[num] = moveInitDrop(.sq11, ROOK);
+        drops[num] = comptime moveInitDrop(.sq11, Piece.init(US, .rook));
         num += 1;
     }
     if (handAny(h, .r_gold)) {
-        drops[num] = moveInitDrop(.sq11, GOLD);
+        drops[num] = comptime moveInitDrop(.sq11, Piece.init(US, .gold));
         num += 1;
     }
     if (next_to_lance == 0) {
@@ -2365,21 +2641,21 @@ fn generateDropMoves(mlist: *MoveList, comptime US: Color, pos: *const Position,
         }
         return;
     }
-    var to_bb1 = target & if (US == .black) R1_BB else R9_BB;
+    var to_bb1 = target & comptime if (US == .black) R1_BB else R9_BB;
     while (bbAny(to_bb1)) {
         const to = bbPop(&to_bb1);
         for (next_to_lance..num) |i| {
             mlist.append(moveSetTo(drops[i], to));
         }
     }
-    var to_bb2 = target & if (US == .black) R2_BB else R8_BB;
+    var to_bb2 = target & comptime if (US == .black) R2_BB else R8_BB;
     while (bbAny(to_bb2)) {
         const to = bbPop(&to_bb2);
         for (next_to_knight..num) |i| {
             mlist.append(moveSetTo(drops[i], to));
         }
     }
-    var to_bb3 = target & topRanksBB(THEM, 7);
+    var to_bb3 = target & comptime topRanksBB(THEM, 7);
     while (bbAny(to_bb3)) {
         const to = bbPop(&to_bb3);
         for (0..num) |i| {
@@ -2388,12 +2664,12 @@ fn generateDropMoves(mlist: *MoveList, comptime US: Color, pos: *const Position,
     }
 }
 
-test "generateDropMoves" {
+test "generateDrops" {
     var st = StateInfo{};
-    const pos = Position.fromSfen("9/9/4p4/9/9/9/9/9/4K4 w rbgsnlp 1", &st);
+    const pos = Position.fromSfen(DROPS_SFEN, &st);
     var mlist = MoveList{};
-    generateDropMoves(&mlist, .white, &pos, pos.spacesBB());
-    try tst.expectEqual(79 * 4 + 62 + 71 + 64, mlist.len);
+    generateDrops(&mlist, .black, &pos, pos.spacesBB());
+    try tst.expectEqual(63 + 70 + 61 + 79 * 4, mlist.len);
 }
 
 fn generatePawnMoves(mlist: *MoveList, comptime ALL: bool, comptime US: Color, pos: *const Position, target: Bitboard) void {
@@ -2702,7 +2978,7 @@ fn generateGeneralMoves(mlist: *MoveList, comptime BGT: MoveGenType, comptime AL
     generateRookMoves(mlist, ALL, US, pos, target);
     generateGHDKMoves(mlist, US, pos, target);
     if (BGT == .non_captures or BGT == .non_captures_pro_minus or BGT == .non_evasions) {
-        generateDropMoves(mlist, US, pos, pos.spacesBB());
+        generateDrops(mlist, US, pos, pos.spacesBB());
     }
 }
 
@@ -2745,7 +3021,7 @@ fn generateEvasionMoves(mlist: *MoveList, comptime ALL: bool, comptime US: Color
         generateBishopMoves(mlist, ALL, US, pos, target2);
         generateRookMoves(mlist, ALL, US, pos, target2);
         generateGHDMoves(mlist, US, pos, target2);
-        generateDropMoves(mlist, US, pos, target1);
+        generateDrops(mlist, US, pos, target1);
     }
 }
 
@@ -2755,6 +3031,289 @@ test "generateEvasionMoves" {
     var mlist = MoveList{};
     generateEvasionMoves(&mlist, true, .black, &pos);
     try tst.expectEqual(9, mlist.len);
+}
+
+fn generateDirectCheckMoves(mlist: *MoveList, comptime ALL: bool, comptime US: Color, pos: *const Position, from: Square, target: Bitboard, ksq: Square) void {
+    const THEM = comptime US.turn();
+    const ENEMY_BB = comptime topRanksBB(US, 3);
+    const pc = pos.piece(from);
+    switch (pc.pieceType()) {
+        .pawn => {
+            var dst = target & pawnEffectBB(US, from) & goldEffectBB(THEM, ksq) & ENEMY_BB;
+            while (bbAny(dst)) {
+                mlist.append(moveInitPromote(from, bbPop(&dst), pc));
+            }
+            dst = target & pawnEffectBB(US, from) & pawnEffectBB(THEM, ksq) & topRanksBB(THEM, if (ALL) 8 else 6);
+            while (bbAny(dst)) {
+                mlist.append(moveInit(from, bbPop(&dst), pc));
+            }
+        },
+        .lance => {
+            const occ = pos.occBB();
+            var dst = target & lanceEffectBB(US, from, occ) & goldEffectBB(THEM, ksq) & ENEMY_BB;
+            while (bbAny(dst)) {
+                mlist.append(moveInitPromote(from, bbPop(&dst), pc));
+            }
+            if (from.file() == ksq.file() and !bbMoreThanOne(betweenBB(from, ksq) & occ)) {
+                dst = target & pos.colorBB(THEM) & betweenBB(from, ksq) & topRanksBB(THEM, if (ALL) 8 else 7);
+                while (bbAny(dst)) {
+                    mlist.append(moveInit(from, bbPop(&dst), pc));
+                }
+            }
+        },
+        .knight => {
+            var dst = target & knightEffectBB(US, from) & goldEffectBB(THEM, ksq) & ENEMY_BB;
+            while (bbAny(dst)) {
+                mlist.append(moveInitPromote(from, bbPop(&dst), pc));
+            }
+            dst = target & knightEffectBB(US, from) & knightEffectBB(THEM, ksq) & topRanksBB(THEM, 7);
+            while (bbAny(dst)) {
+                mlist.append(moveInit(from, bbPop(&dst), pc));
+            }
+        },
+        .silver => {
+            var dst = target & silverEffectBB(US, from) & goldEffectBB(THEM, ksq);
+            if (!bbAny(ENEMY_BB & squareBB(from))) {
+                dst &= ENEMY_BB;
+            }
+            while (bbAny(dst)) {
+                mlist.append(moveInitPromote(from, bbPop(&dst), pc));
+            }
+            dst = target & silverEffectBB(US, from) & silverEffectBB(THEM, ksq);
+            while (bbAny(dst)) {
+                mlist.append(moveInit(from, bbPop(&dst), pc));
+            }
+        },
+        .bishop => {
+            const occ = pos.occBB();
+            var dst = target & bishopEffectBB(from, occ) & horseEffectBB(ksq, occ);
+            if (!bbAny(ENEMY_BB & squareBB(from))) {
+                dst &= ENEMY_BB;
+            }
+            while (bbAny(dst)) {
+                mlist.append(moveInitPromote(from, bbPop(&dst), pc));
+            }
+            if (ALL or !from.rank().inTop(US, 3)) {
+                dst = target & bishopEffectBB(from, occ) & bishopEffectBB(ksq, occ);
+                if (!ALL) {
+                    dst &= ~ENEMY_BB;
+                }
+                while (bbAny(dst)) {
+                    mlist.append(moveInit(from, bbPop(&dst), pc));
+                }
+            }
+        },
+        .rook => {
+            const occ = pos.occBB();
+            var dst = target & rookEffectBB(from, occ) & dragonEffectBB(ksq, occ);
+            if (!bbAny(ENEMY_BB & squareBB(from))) {
+                dst &= ENEMY_BB;
+            }
+            while (bbAny(dst)) {
+                mlist.append(moveInitPromote(from, bbPop(&dst), pc));
+            }
+            if (ALL or !from.rank().inTop(US, 3)) {
+                dst = target & rookEffectBB(from, occ) & rookEffectBB(ksq, occ);
+                if (!ALL) {
+                    dst &= ~ENEMY_BB;
+                }
+                while (bbAny(dst)) {
+                    mlist.append(moveInit(from, bbPop(&dst), pc));
+                }
+            }
+        },
+        .gold, .pro_pawn, .pro_lance, .pro_knight, .pro_silver => {
+            var dst = target & goldEffectBB(US, from) & goldEffectBB(THEM, ksq);
+            while (bbAny(dst)) {
+                mlist.append(moveInit(from, bbPop(&dst), pc));
+            }
+        },
+        .horse => {
+            const occ = pos.occBB();
+            var dst = target & horseEffectBB(from, occ) & horseEffectBB(ksq, occ);
+            while (bbAny(dst)) {
+                mlist.append(moveInit(from, bbPop(&dst), pc));
+            }
+        },
+        .dragon => {
+            const occ = pos.occBB();
+            var dst = target & dragonEffectBB(from, occ) & dragonEffectBB(ksq, occ);
+            while (bbAny(dst)) {
+                mlist.append(moveInit(from, bbPop(&dst), pc));
+            }
+        },
+        else => unreachable,
+    }
+}
+
+fn generateDiscoveredCheckMoves(mlist: *MoveList, comptime ALL: bool, comptime US: Color, pos: *const Position, from: Square, target: Bitboard) void {
+    const THEM = comptime US.turn();
+    const ENEMY_BB = comptime topRanksBB(US, 3);
+    const pc = pos.piece(from);
+    const target2 = pieceEffectBB(pc, from, pos.occBB()) & target;
+    switch (pc.pieceType()) {
+        .pawn => {
+            if (bbAny(target2)) {
+                const to = from.front(US);
+                if (to.rank().inTop(US, 3)) {
+                    mlist.append(moveInitPromote(from, to, pc));
+                    if (ALL and !to.rank().inTop(US, 1)) {
+                        mlist.append(moveInit(from, to, pc));
+                    }
+                } else {
+                    mlist.append(moveInit(from, to, pc));
+                }
+            }
+        },
+        .lance => {
+            var bb = target2 & ENEMY_BB;
+            while (bbAny(bb)) {
+                const to = bbPop(&bb);
+                mlist.append(moveInitPromote(from, to, pc));
+            }
+            bb = target2 & topRanksBB(THEM, if (ALL) 8 else 7);
+            while (bbAny(bb)) {
+                const to = bbPop(&bb);
+                mlist.append(moveInit(from, to, pc));
+            }
+        },
+        .knight => {
+            var bb = target2 & ENEMY_BB;
+            while (bbAny(bb)) {
+                const to = bbPop(&bb);
+                mlist.append(moveInitPromote(from, to, pc));
+                if (!to.rank().inTop(US, 2)) {
+                    mlist.append(moveInit(from, to, pc));
+                }
+            }
+        },
+        .silver => {
+            if (from.rank().inTop(US, 3)) {
+                var bb = target2;
+                while (bbAny(bb)) {
+                    const to = bbPop(&bb);
+                    mlist.append(moveInitPromote(from, to, pc));
+                    mlist.append(moveInit(from, to, pc));
+                }
+            } else {
+                var bb = target2 & ENEMY_BB;
+                while (bbAny(bb)) {
+                    const to = bbPop(&bb);
+                    mlist.append(moveInitPromote(from, to, pc));
+                    mlist.append(moveInit(from, to, pc));
+                }
+                bb = target2 & ~ENEMY_BB;
+                while (bbAny(bb)) {
+                    const to = bbPop(&bb);
+                    mlist.append(moveInit(from, to, pc));
+                }
+            }
+        },
+        .bishop, .rook => {
+            if (from.rank().inTop(US, 3)) {
+                var bb = target2;
+                while (bbAny(bb)) {
+                    const to = bbPop(&bb);
+                    mlist.append(moveInitPromote(from, to, pc));
+                    if (ALL) {
+                        mlist.append(moveInit(from, to, pc));
+                    }
+                }
+            } else {
+                var bb = target2 & ENEMY_BB;
+                while (bbAny(bb)) {
+                    const to = bbPop(&bb);
+                    mlist.append(moveInitPromote(from, to, pc));
+                    if (ALL) {
+                        mlist.append(moveInit(from, to, pc));
+                    }
+                }
+                bb = target2 & ~ENEMY_BB;
+                while (bbAny(bb)) {
+                    const to = bbPop(&bb);
+                    mlist.append(moveInit(from, to, pc));
+                }
+            }
+        },
+        .gold, .king, .pro_pawn, .pro_lance, .pro_knight, .pro_silver, .horse, .dragon => {
+            var bb = target2;
+            while (bbAny(bb)) {
+                const to = bbPop(&bb);
+                mlist.append(moveInit(from, to, pc));
+            }
+        },
+        else => unreachable,
+    }
+}
+
+fn generateCheckMoves(mlist: *MoveList, comptime ALL: bool, comptime US: Color, pos: *const Position) void {
+    const THEM = comptime US.turn();
+    const enemy_ksq = pos.kingSquare(THEM);
+    const candidates = ((pos.typeBB(.pawn) & checkCandidateBB(US, .r_pawn, enemy_ksq)) |
+        (pos.typeBB(.lance) & checkCandidateBB(US, .r_lance, enemy_ksq)) |
+        (pos.typeBB(.knight) & checkCandidateBB(US, .r_knight, enemy_ksq)) |
+        (pos.typeBB(.silver) & checkCandidateBB(US, .r_silver, enemy_ksq)) |
+        (pos.typeBB(.golds) & checkCandidateBB(US, .r_gold, enemy_ksq)) |
+        (pos.typeBB(.bishop) & checkCandidateBB(US, .r_bishop, enemy_ksq)) |
+        (pos.typeBB(.rook_dragon)) |
+        (pos.typeBB(.horse) & checkCandidateBB(US, .r_rook, enemy_ksq))) &
+        pos.colorBB(US);
+    const blockers = pos.blockersBB(THEM) & pos.colorBB(US);
+    const target = ~pos.colorBB(US);
+    var src = blockers;
+    while (bbAny(src)) {
+        const from = bbPop(&src);
+        const pin_line = lineBB(enemy_ksq, from);
+        generateDiscoveredCheckMoves(mlist, ALL, US, pos, from, target & ~pin_line);
+        if (bbAny(candidates & squareBB(from))) {
+            generateDirectCheckMoves(mlist, ALL, US, pos, from, target & pin_line, enemy_ksq);
+        }
+    }
+    src = (candidates | blockers) ^ blockers;
+    while (bbAny(src)) {
+        generateDirectCheckMoves(mlist, ALL, US, pos, bbPop(&src), target, enemy_ksq);
+    }
+
+    const h = pos.hands[@intFromEnum(US)];
+    if (h != HAND_EMPTY) {
+        const spaces = pos.spacesBB();
+        if (handAny(h, .r_pawn)) {
+            const dst = spaces & pos.checkSquaresBB(.pawn);
+            if (bbAny(dst)) {
+                const to = bbPeek(dst);
+                if (pos.isPawnDropValid(US, to)) {
+                    mlist.append(moveInitDrop(to, Piece.init(US, .pawn)));
+                }
+            }
+        }
+        if (!handEmptyExceptPawns(h)) {
+            inline for ([_]Piece{
+                Piece.init(US, .lance),
+                Piece.init(US, .knight),
+                Piece.init(US, .silver),
+                Piece.init(US, .bishop),
+                Piece.init(US, .rook),
+                Piece.init(US, .gold),
+            }) |PC| {
+                if (handAny(h, PC.pieceRaw())) {
+                    var dst = spaces & pos.checkSquaresBB(PC.pieceType());
+                    while (bbAny(dst)) {
+                        mlist.append(moveInitDrop(bbPop(&dst), PC));
+                    }
+                }
+            }
+        }
+    }
+
+    if (pos.inCheck()) {
+        var i = mlist.len;
+        while (i > 0) {
+            i -= 1;
+            if (!pos.isMoveEvasive(US, mlist.moves[i])) {
+                _ = mlist.remove(i);
+            }
+        }
+    }
 }
 
 fn generateMovesImpl(mlist: *MoveList, comptime MGT: MoveGenType, comptime US: Color, pos: *const Position) void {
@@ -2768,23 +3327,23 @@ fn generateMovesImpl(mlist: *MoveList, comptime MGT: MoveGenType, comptime US: C
         var i = mlist.len;
         while (i > 0) {
             i -= 1;
-            if (!pos.isLegal(US, mlist.moves[i])) {
+            if (!pos.isMoveSafe(US, mlist.moves[i])) {
                 mlist.remove(i);
             }
         }
     } else if (MGT == .evasions or MGT == .evasions_all) {
-        if (pos.side_to_move == .black) {
-            generateEvasionMoves(mlist, ALL, .black, pos);
-        } else {
-            generateEvasionMoves(mlist, ALL, .white, pos);
+        generateEvasionMoves(mlist, ALL, US, pos);
+    } else if (MGT == .checks or MGT == .checks_all) {
+        generateCheckMoves(mlist, ALL, US, pos);
+        var i = mlist.len;
+        while (i > 0) {
+            i -= 1;
+            if (!pos.isMoveSafe(US, mlist.moves[i])) {
+                mlist.remove(i);
+            }
         }
     } else {
-        const BGT = comptime MGT.base();
-        if (pos.side_to_move == .black) {
-            generateGeneralMoves(mlist, BGT, ALL, .black, pos, .none);
-        } else {
-            generateGeneralMoves(mlist, BGT, ALL, .white, pos, .none);
-        }
+        generateGeneralMoves(mlist, MGT.base(), ALL, US, pos, .none);
     }
 }
 
@@ -2806,6 +3365,7 @@ test "generateMoves(legal_all)" {
         .{ .sfen = MAX_MOVES_SFEN, .len = 593 },
         .{ .sfen = EVASIONS_SFEN, .len = 6 },
         .{ .sfen = PAWN_DROP_MATE_SFEN, .len = 70 + 10 + 30 },
+        .{ .sfen = DOUBLE_CHECKED_SFEN, .len = 2 },
     };
     for (data_list) |data| {
         var st = StateInfo{};
@@ -2838,6 +3398,28 @@ test "generateMoves(non_captures_pro_minus)" {
     var mlist = MoveList{};
     generateMoves(&mlist, .non_captures_pro_minus, &pos);
     try tst.expectEqual(3, mlist.len);
+}
+
+test "generateMoves(checks_all)" {
+    const data_list = [_]struct {
+        sfen: Str,
+        len: usize,
+    }{
+        .{ .sfen = DEFAULT_SFEN, .len = 0 },
+        .{ .sfen = MATSURI_SFEN, .len = 8 },
+        .{ .sfen = DROPS_SFEN, .len = 1 + 6 + 2 + 5 + 12 + 16 + 6 },
+        .{ .sfen = MAX_CHECKS_SFEN, .len = 91 },
+        .{ .sfen = DOUBLE_CHECKED_SFEN, .len = 1 },
+        .{ .sfen = "4kl2R/2SP2GB1/4K3r/9/6N2/9/9/9/4L4 b BGSNLP 1", .len = 6 }, // single checked
+        .{ .sfen = "4S3R/4kB3/9/5P3/4N4/9/9/9/3L5 b - 1", .len = 8 }, // promote
+    };
+    for (data_list) |data| {
+        var st = StateInfo{};
+        const pos = Position.fromSfen(data.sfen, &st);
+        var mlist = MoveList{};
+        generateMoves(&mlist, .checks_all, &pos);
+        try tst.expectEqual(data.len, mlist.len);
+    }
 }
 
 fn generateRecaptureMoves(mlist: *MoveList, comptime ALL: bool, pos: *const Position, recap_sq: Square) void {
@@ -3064,7 +3646,7 @@ const Search = struct {
             if (m == MOVE_NONE) {
                 break;
             }
-            if (!pos.isLegal(US, m)) {
+            if (!pos.isMoveSafe(US, m)) {
                 continue;
             }
             var st = StateInfo{};
@@ -3112,7 +3694,7 @@ const Search = struct {
                     continue;
                 }
             }
-            if (!pos.isLegal(US, m)) {
+            if (!pos.isMoveSafe(US, m)) {
                 continue;
             }
             var st = StateInfo{};
@@ -3281,6 +3863,10 @@ pub const Engine = struct {
                 } else if (strEql(cmd, "moves")) {
                     var mlist = MoveList{};
                     generateMoves(&mlist, .legal_all, &self.pos);
+                    try writer.print("{}\n", .{mlist});
+                } else if (strEql(cmd, "checks")) {
+                    var mlist = MoveList{};
+                    generateMoves(&mlist, .checks_all, &self.pos);
                     try writer.print("{}\n", .{mlist});
                 } else if (strStartsWith(cmd, "go")) {
                     self.search.think(&self.pos, self.depth_limit);
