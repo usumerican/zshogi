@@ -12,6 +12,39 @@ JavaScript から利用できる WebAssembly 版ライブラリ、
 
 将棋プログラミングについては、[やねうら王](https://github.com/yaneurao/YaneuraOu)を参考にしました。
 
+## ライブラリの使い方
+
+```
+npm install zshogi
+```
+
+```js
+import { Engine } from 'zshogi';
+
+(async () => {
+  const engine = await Engine.init();
+  for (const request of [
+    'usi',
+    'setoption name DepthLimit value 5',
+    'getoption',
+    'isready',
+    'usinewgame',
+    'd',
+    'go',
+    'position startpos moves 1g1f',
+    'd',
+    'go',
+    'matsuri',
+    'd',
+    'moves',
+    'checks',
+  ]) {
+    console.log('> ' + request);
+    console.log(await engine.run(request));
+  }
+})();
+```
+
 ## 開発
 
 実行可能ファイルのビルドには、Zig が必要です。
