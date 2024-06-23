@@ -40,7 +40,7 @@ import { Engine } from 'zshogi';
     'checks',
   ]) {
     console.log('> ' + request);
-    console.log(await engine.run(request));
+    console.log(engine.run(request));
   }
 })();
 ```
@@ -66,6 +66,12 @@ d
 moves
 go
 EOF
+```
+
+合法手生成の性能を計測します。
+
+```
+echo "matsuri\nperft 4" | zig build run --release=fast
 ```
 
 WebAssembly 版ライブラリと Web アプリのビルドには、Node.js も必要です。

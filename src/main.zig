@@ -3868,7 +3868,7 @@ pub const Engine = struct {
                     var mlist = MoveList{};
                     generateMoves(&mlist, .checks_all, &self.pos);
                     try writer.print("{}\n", .{mlist});
-                } else if (strStartsWith(cmd, "go")) {
+                } else if (strEql(cmd, "go")) {
                     self.search.think(&self.pos, self.depth_limit);
                     const best_root_move = self.search.root_moves[0];
                     try writer.print("info depth {d} score cp {d} nodes {d} nps {d} time {d} pv ", .{
@@ -3890,6 +3890,12 @@ pub const Engine = struct {
                     try writer.print("\nbestmove ", .{});
                     try moveWriteUsi(best_root_move.move, writer);
                     try writer.writeByte('\n');
+                } else if (strEql(cmd, "perft")) {
+                    const depth: Depth = if (it.next()) |s| try std.fmt.parseInt(Depth, s, 10) else 1;
+                    var time = milliTimestamp();
+                    const nodes = perft(self.allocator, &self.pos, depth);
+                    time = milliTimestamp() - time;
+                    try writer.print("info depth {d} nodes {d} time {d}\n", .{ depth, nodes, time });
                 }
             }
         }
