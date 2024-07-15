@@ -49,6 +49,7 @@ pub fn build(b: *std.Build) void {
     wasm.entry = .disabled;
     wasm.rdynamic = true;
     wasm.import_memory = true;
+    // wasm.stack_size = 2 * 1024 * 1024;
     const wasm_install = b.addInstallArtifact(wasm, .{});
     const wasm_step = b.step("wasm", "Build wasm");
     wasm_step.dependOn(&wasm_install.step);

@@ -157,6 +157,11 @@ const Square = enum {
         std.debug.assert(self.file() != .f9);
         return @enumFromInt(@intFromEnum(self) + Rank.N);
     }
+
+    fn turn(self: @This()) @This() {
+        std.debug.assert(self != .none);
+        return @enumFromInt(N - 1 - @intFromEnum(self));
+    }
 };
 
 test "Square.front" {
@@ -170,6 +175,14 @@ test "Square.right" {
 
 test "Square.left" {
     try tst.expectEqual(Square.sq65, Square.sq55.left());
+}
+
+test "Square.turn" {
+    try tst.expectEqual(Square.sq99, Square.sq11.turn());
+    try tst.expectEqual(Square.sq91, Square.sq19.turn());
+    try tst.expectEqual(Square.sq55, Square.sq55.turn());
+    try tst.expectEqual(Square.sq19, Square.sq91.turn());
+    try tst.expectEqual(Square.sq11, Square.sq99.turn());
 }
 
 const Direction = enum {
@@ -257,6 +270,11 @@ const Piece = enum(u8) {
         return @enumFromInt(@intFromEnum(self) | 0b01000);
     }
 
+    fn turn(self: @This()) @This() {
+        std.debug.assert(self != .none);
+        return @enumFromInt(@intFromEnum(self) ^ 0b10000);
+    }
+
     const USI = [_]Str{
         "",   "P",  "L",  "N",  "S",  "B",  "R", "G",  "K",
         "+P", "+L", "+N", "+S", "+B", "+R", "",  "",   "p",
@@ -325,6 +343,13 @@ test "Piece.promote" {
     try tst.expectEqual(Piece.b_pro_pawn, Piece.b_pro_pawn.promote());
     try tst.expectEqual(Piece.w_dragon, Piece.w_rook.promote());
     try tst.expectEqual(Piece.w_dragon, Piece.w_dragon.promote());
+}
+
+test "Piece.turn" {
+    try tst.expectEqual(Piece.w_pawn, Piece.b_pawn.turn());
+    try tst.expectEqual(Piece.b_pawn, Piece.w_pawn.turn());
+    try tst.expectEqual(Piece.w_dragon, Piece.b_dragon.turn());
+    try tst.expectEqual(Piece.b_dragon, Piece.w_dragon.turn());
 }
 
 const Bitboard = @Vector(2, u64);
@@ -1833,6 +1858,212 @@ fn proDiffPieceValue(pc: Piece) Value {
     return PRO_DIFF_PIECE_VALUE[@intFromEnum(pc)];
 }
 
+const nnue = struct {
+    const BIN = @embedFile("nnue/kp_256x2-32-32_20190212.bin");
+    const F = 1710;
+    const N1 = 256;
+    const N2 = 32;
+    const N3 = 32;
+    const FV_SCALE = 16;
+
+    const HAND_INDEX = [_]usize{
+        0, 1,  39, 49, 59, 79, 85, 69,
+        0, 0,  0,  0,  0,  0,  0,  0,
+        0, 20, 44, 54, 64, 82, 88, 74,
+        0, 0,  0,  0,  0,  0,  0,  0,
+    };
+
+    fn handIndex(pc: Piece, hc: u8) usize {
+        std.debug.assert(hc > 0);
+        return HAND_INDEX[@intFromEnum(pc)] + hc - 1;
+    }
+
+    const BOARD_INDEX = [_]usize{
+        0,    90,  252, 414, 576, 900,  1224, 738,
+        1548, 738, 738, 738, 738, 1062, 1386, 0,
+        0,    171, 333, 495, 657, 981,  1305, 819,
+        1629, 819, 819, 819, 819, 1143, 1467, 0,
+    };
+
+    fn boardIndex(pc: Piece, sq: Square) usize {
+        return BOARD_INDEX[@intFromEnum(pc)] + @intFromEnum(sq);
+    }
+
+    const Accumulation = @Vector(N1, i16);
+
+    const Accumulator = struct {
+        added_indices: [2][Color.N]usize = undefined,
+        added_count: usize = 0,
+        removed_indices: [2][Color.N]usize = undefined,
+        removed_count: usize = 0,
+        accumulations: [Color.N]Accumulation = undefined,
+        accumulated: bool = false,
+
+        fn addHandIndex(self: *@This(), pc: Piece, hc: u8) void {
+            std.debug.assert(self.added_count < 2);
+            self.added_indices[self.added_count][0] = handIndex(pc, hc);
+            self.added_indices[self.added_count][1] = handIndex(pc.turn(), hc);
+            self.added_count += 1;
+        }
+
+        fn addBoardIndex(self: *@This(), pc: Piece, sq: Square) void {
+            std.debug.assert(self.added_count < 2);
+            self.added_indices[self.added_count][0] = boardIndex(pc, sq);
+            self.added_indices[self.added_count][1] = boardIndex(pc.turn(), sq.turn());
+            self.added_count += 1;
+        }
+
+        fn removeHandIndex(self: *@This(), pc: Piece, hc: u8) void {
+            std.debug.assert(self.removed_count < 2);
+            self.removed_indices[self.removed_count][0] = handIndex(pc, hc);
+            self.removed_indices[self.removed_count][1] = handIndex(pc.turn(), hc);
+            self.removed_count += 1;
+        }
+
+        fn removeBoardIndex(self: *@This(), pc: Piece, sq: Square) void {
+            std.debug.assert(self.removed_count < 2);
+            self.removed_indices[self.removed_count][0] = boardIndex(pc, sq);
+            self.removed_indices[self.removed_count][1] = boardIndex(pc.turn(), sq.turn());
+            self.removed_count += 1;
+        }
+    };
+
+    const Model = struct {
+        allocator: std.mem.Allocator,
+        version: u32,
+        architecture_hash: u32,
+        architecture_len: u32,
+        architecture: []u8,
+        feature_hash: u32,
+        bias1: *@Vector(N1, i16),
+        weights1: []*@Vector(N1, i16),
+        network_hash: u32,
+        bias2: *@Vector(N2, i32),
+        weights2: []*@Vector(N1 * 2, i8),
+        bias3: *@Vector(N3, i32),
+        weights3: []*@Vector(N2, i8),
+        bias4: i32,
+        weights4: *@Vector(N3, i8),
+
+        fn init(allocator: std.mem.Allocator, bytes: []const u8) !@This() {
+            var self: @This() = undefined;
+            self.allocator = allocator;
+            var p: usize = 0;
+            var q: usize = p + 4;
+            self.version = std.mem.readInt(u32, @ptrCast(bytes[p..q]), .little);
+            p = q;
+            q = p + 4;
+            self.architecture_hash = std.mem.readInt(u32, @ptrCast(bytes[p..q]), .little);
+            p = q;
+            q = p + 4;
+            self.architecture_len = std.mem.readInt(u32, @ptrCast(bytes[p..q]), .little);
+            p = q;
+            q = p + self.architecture_len;
+            self.architecture = try self.allocator.dupe(u8, bytes[p..q]);
+            p = q;
+            q = p + 4;
+            self.feature_hash = std.mem.readInt(u32, @ptrCast(bytes[p..q]), .little);
+            self.bias1 = try self.allocator.create(@Vector(N1, i16));
+            for (0..N1) |i| {
+                p = q;
+                q = p + 2;
+                self.bias1[i] = std.mem.readInt(i16, @ptrCast(bytes[p..q]), .little);
+            }
+            self.weights1 = try self.allocator.alloc(*@Vector(N1, i16), F);
+            for (0..F) |i| {
+                self.weights1[i] = try self.allocator.create(@Vector(N1, i16));
+                for (0..N1) |j| {
+                    p = q;
+                    q = p + 2;
+                    self.weights1[i][j] = std.mem.readInt(i16, @ptrCast(bytes[p..q]), .little);
+                }
+            }
+            p = q;
+            q = p + 4;
+            self.network_hash = std.mem.readInt(u32, @ptrCast(bytes[p..q]), .little);
+            self.bias2 = try self.allocator.create(@Vector(N2, i32));
+            for (0..N2) |i| {
+                p = q;
+                q = p + 4;
+                self.bias2[i] = std.mem.readInt(i32, @ptrCast(bytes[p..q]), .little);
+            }
+            self.weights2 = try self.allocator.alloc(*@Vector(N1 * 2, i8), N2);
+            for (0..N2) |i| {
+                self.weights2[i] = try self.allocator.create(@Vector(N1 * 2, i8));
+                for (0..N1 * 2) |j| {
+                    p = q;
+                    q = p + 1;
+                    self.weights2[i][j] = std.mem.readInt(i8, @ptrCast(bytes[p..q]), .little);
+                }
+            }
+            self.bias3 = try self.allocator.create(@Vector(N3, i32));
+            for (0..N3) |i| {
+                p = q;
+                q = p + 4;
+                self.bias3[i] = std.mem.readInt(i32, @ptrCast(bytes[p..q]), .little);
+            }
+            self.weights3 = try self.allocator.alloc(*@Vector(N2, i8), N3);
+            for (0..N3) |i| {
+                self.weights3[i] = try self.allocator.create(@Vector(N2, i8));
+                for (0..N2) |j| {
+                    p = q;
+                    q = p + 1;
+                    self.weights3[i][j] = std.mem.readInt(i8, @ptrCast(bytes[p..q]), .little);
+                }
+            }
+            p = q;
+            q = p + 4;
+            self.bias4 = std.mem.readInt(i32, @ptrCast(bytes[p..q]), .little);
+            self.weights4 = try self.allocator.create(@Vector(N3, i8));
+            for (0..N3) |i| {
+                p = q;
+                q = p + 1;
+                self.weights4[i] = std.mem.readInt(i8, @ptrCast(bytes[p..q]), .little);
+            }
+            return self;
+        }
+
+        fn deinit(self: @This()) void {
+            self.allocator.destroy(self.weights4);
+            for (0..N3) |i| {
+                self.allocator.destroy(self.weights3[i]);
+            }
+            self.allocator.free(self.weights3);
+            self.allocator.destroy(self.bias3);
+            for (0..N2) |i| {
+                self.allocator.destroy(self.weights2[i]);
+            }
+            self.allocator.free(self.weights2);
+            self.allocator.destroy(self.bias2);
+            for (0..F) |i| {
+                self.allocator.destroy(self.weights1[i]);
+            }
+            self.allocator.free(self.weights1);
+            self.allocator.destroy(self.bias1);
+            self.allocator.free(self.architecture);
+        }
+
+        fn propagate(self: @This(), side_to_move: Color, accumulations: *const [Color.N]Accumulation) i32 {
+            const z1 = std.math.clamp(
+                std.simd.join(accumulations[@intFromEnum(side_to_move)], accumulations[@intFromEnum(side_to_move.turn())]),
+                @as(@Vector(N1 * 2, i16), @splat(0)),
+                @as(@Vector(N1 * 2, i16), @splat(127)),
+            );
+            var z2 = self.bias2.*;
+            for (0..N2) |i| {
+                z2[i] += @reduce(.Add, self.weights2[i].* * z1);
+            }
+            z2 = std.math.clamp(z2 >> @splat(6), @as(@Vector(N2, i8), @splat(0)), @as(@Vector(N2, i8), @splat(127)));
+            var z3 = self.bias3.*;
+            for (0..N3) |i| {
+                z3[i] += @reduce(.Add, self.weights3[i].* * z2);
+            }
+            z3 = std.math.clamp(z3 >> @splat(6), @as(@Vector(N3, i8), @splat(0)), @as(@Vector(N3, i8), @splat(127)));
+            return @divTrunc(self.bias4 + @reduce(.Add, self.weights4.* * z3), FV_SCALE);
+        }
+    };
+};
+
 const StateInfo = struct {
     previous: ?*StateInfo = null,
     captured_piece: Piece = .none,
@@ -1841,6 +2072,7 @@ const StateInfo = struct {
     pinners_bb: [Color.N]Bitboard = .{EMPTY_BB} ** Color.N,
     check_squares_bb: [PieceType.N]Bitboard = .{EMPTY_BB} ** PieceType.N,
     material_value: Value = 0,
+    accumulator: nnue.Accumulator = .{},
 
     const DEFAULT = StateInfo{};
 
@@ -2197,13 +2429,20 @@ const Position = struct {
         const prev_st = self.state;
         st.previous = prev_st;
         self.state = st;
+        self.state.accumulator.accumulated = false;
+        self.state.accumulator.added_count = 0;
+        self.state.accumulator.removed_count = 0;
         self.game_ply += 1;
         const to = moveTo(m);
         const after_pc = moveAfterPiece(m);
         var material_diff: Value = 0;
         if (moveDropped(m)) {
             self.putPiece(to, after_pc);
-            handDecrement(&self.hands[@intFromEnum(US)], after_pc.pieceRaw());
+            self.state.accumulator.addBoardIndex(after_pc, to);
+            const hpr = after_pc.pieceRaw();
+            const hc = handCount(self.hands[@intFromEnum(US)], hpr);
+            handDecrement(&self.hands[@intFromEnum(US)], hpr);
+            self.state.accumulator.removeHandIndex(after_pc, hc);
             self.state.captured_piece = .none;
             if (GIVES_CHECK) {
                 self.state.checkers_bb = squareBB(to);
@@ -2221,16 +2460,21 @@ const Position = struct {
                 material_diff = proDiffPieceValue(from_pc);
             }
             self.removePiece(from);
+            self.state.accumulator.removeBoardIndex(from_pc, from);
             const captured_pc = self.piece(to);
             if (captured_pc != .none) {
                 self.removePiece(to);
-                handIncrement(&self.hands[@intFromEnum(US)], captured_pc.pieceRaw());
+                self.state.accumulator.removeBoardIndex(captured_pc, to);
+                const hpr = captured_pc.pieceRaw();
+                handIncrement(&self.hands[@intFromEnum(US)], hpr);
+                self.state.accumulator.addHandIndex(Piece.initPieceRaw(US, hpr), handCount(self.hands[@intFromEnum(US)], hpr));
                 self.state.captured_piece = captured_pc;
                 material_diff += capturedPieceValue(captured_pc);
             } else {
                 self.state.captured_piece = .none;
             }
             self.putPiece(to, after_pc);
+            self.state.accumulator.addBoardIndex(after_pc, to);
             self.updateBitboards();
             if (GIVES_CHECK) {
                 self.state.checkers_bb = squareBB(to) & prev_st.check_squares_bb[@intFromEnum(after_pc.pieceType())];
@@ -2357,6 +2601,53 @@ const Position = struct {
         }
         const from = moveFrom(m);
         return !bbAny(self.blockersBB(US) & squareBB(from)) or squaresAligned(from, to, ksq);
+    }
+
+    fn refreshAccumulations(self: *@This(), model: *const nnue.Model) void {
+        self.state.accumulator.accumulations[0] = model.bias1.*;
+        self.state.accumulator.accumulations[1] = model.bias1.*;
+        for (0..Square.N) |sqi| {
+            const sq: Square = @enumFromInt(sqi);
+            const pc = self.piece(sq);
+            if (pc != .none) {
+                self.state.accumulator.accumulations[0] += model.weights1[nnue.boardIndex(pc, sq)].*;
+                self.state.accumulator.accumulations[1] += model.weights1[nnue.boardIndex(pc.turn(), sq.turn())].*;
+            }
+        }
+        for (Color.COLORS) |c| {
+            for (HAND_PIECE_RAWS) |pr| {
+                const hand_count = handCount(self.hands[@intFromEnum(c)], pr);
+                if (hand_count > 0) {
+                    const pc0 = Piece.initPieceRaw(c, pr);
+                    const pc1 = pc0.turn();
+                    var hc: u8 = 1;
+                    while (hc <= hand_count) : (hc += 1) {
+                        self.state.accumulator.accumulations[0] += model.weights1[nnue.handIndex(pc0, hc)].*;
+                        self.state.accumulator.accumulations[1] += model.weights1[nnue.handIndex(pc1, hc)].*;
+                    }
+                }
+            }
+        }
+        self.state.accumulator.accumulated = true;
+    }
+
+    fn updateAccumulations(self: *@This(), model: *const nnue.Model) void {
+        if (self.state.accumulator.accumulated) {
+            return;
+        }
+        if (self.state.previous) |prev_st| {
+            self.state.accumulator.accumulations[0] = prev_st.accumulator.accumulations[0];
+            self.state.accumulator.accumulations[1] = prev_st.accumulator.accumulations[1];
+            for (0..self.state.accumulator.added_count) |i| {
+                self.state.accumulator.accumulations[0] += model.weights1[self.state.accumulator.added_indices[i][0]].*;
+                self.state.accumulator.accumulations[1] += model.weights1[self.state.accumulator.added_indices[i][1]].*;
+            }
+            for (0..self.state.accumulator.removed_count) |i| {
+                self.state.accumulator.accumulations[0] -= model.weights1[self.state.accumulator.removed_indices[i][0]].*;
+                self.state.accumulator.accumulations[1] -= model.weights1[self.state.accumulator.removed_indices[i][1]].*;
+            }
+        }
+        self.state.accumulator.accumulated = true;
     }
 };
 
@@ -3543,7 +3834,7 @@ test "MovePicker.generateRecap" {
     try tst.expectEqual(MOVE_NONE, mp.nextMove());
 }
 
-fn evaluate(pos: *const Position) Value {
+fn evaluateMaterial(pos: *const Position) Value {
     var score = pos.state.material_value;
     for (0..Square.N) |sqi| {
         const pc = pos.piece(@enumFromInt(sqi));
@@ -3555,10 +3846,10 @@ fn evaluate(pos: *const Position) Value {
     return if (pos.side_to_move == .black) score else -score;
 }
 
-test "evaluate" {
+test "evaluateMaterial" {
     var st = StateInfo{};
     const pos = Position.fromSfen("p8/9/9/9/9/9/9/9/9 w p 1", &st);
-    try tst.expectEqual(@as(Value, 81 + 90), evaluate(&pos));
+    try tst.expectEqual(@as(Value, 81 + 90), evaluateMaterial(&pos));
 }
 
 extern fn dateNow() i64;
@@ -3599,6 +3890,7 @@ const Search = struct {
     time: i64 = 0,
     pv: [MAX_DEPTH * (MAX_DEPTH + 1) / 2]Move = undefined,
     stopped: bool = false,
+    model: ?nnue.Model = null,
 
     fn clear(self: *@This()) void {
         self.root_moves_len = 0;
@@ -3623,12 +3915,16 @@ const Search = struct {
         return null;
     }
 
+    fn evaluate(self: @This(), pos: *const Position) Value {
+        return self.model.?.propagate(pos.side_to_move, &pos.state.accumulator.accumulations);
+    }
+
     fn qsearch(self: *@This(), comptime US: Color, pos: *Position, alpha: Value, beta: Value, depth: Depth, recap_sq: Square) Value {
         const THEM = comptime US.turn();
         var max_alpha = -VALUE_INFINITE;
         if (!pos.inCheck()) {
             max_alpha = alpha;
-            const value = evaluate(pos);
+            const value = self.evaluate(pos);
             if (value > max_alpha) {
                 max_alpha = value;
                 if (max_alpha >= beta) {
@@ -3651,6 +3947,7 @@ const Search = struct {
             }
             var st = StateInfo{};
             pos.doMove(m, &st);
+            pos.updateAccumulations(&self.model.?);
             self.node_count += 1;
             const value = -self.qsearch(THEM, pos, -beta, -max_alpha, depth - 1, moveTo(m));
             pos.undoMove(m);
@@ -3699,6 +3996,7 @@ const Search = struct {
             }
             var st = StateInfo{};
             pos.doMove(m, &st);
+            pos.updateAccumulations(&self.model.?);
             move_count += 1;
             var value = alpha;
             var full_depth_search = NT == .PV and move_count == 1;
@@ -3754,6 +4052,7 @@ const Search = struct {
         for (0..mlist.len) |i| {
             self.appendRootMove(mlist.moves[i]);
         }
+        pos.refreshAccumulations(&self.model.?);
         self.depth = 0;
         while (self.depth < depth) {
             self.depth += 1;
@@ -3778,6 +4077,29 @@ const Search = struct {
     }
 };
 
+test "Search.evaluate" {
+    var search = Search{};
+    search.model = try nnue.Model.init(tst.allocator, nnue.BIN);
+    defer search.model.?.deinit();
+    const sfen = MATSURI_SFEN;
+    var st = StateInfo{};
+    var pos = Position.fromSfen(sfen, &st);
+    pos.refreshAccumulations(&search.model.?);
+    try tst.expectEqual(-1124, search.evaluate(&pos));
+
+    const m1 = moveInitPromote(.sq66, .sq99, .w_bishop);
+    var st1 = StateInfo{};
+    pos.doMove(m1, &st1);
+    pos.updateAccumulations(&search.model.?);
+    try tst.expectEqual(2975, search.evaluate(&pos));
+
+    const m2 = moveInitDrop(.sq23, .b_gold);
+    var st2 = StateInfo{};
+    pos.doMove(m2, &st2);
+    pos.updateAccumulations(&search.model.?);
+    try tst.expectEqual(-2273, search.evaluate(&pos));
+}
+
 const MAX_STATES = 1024;
 
 pub const Engine = struct {
@@ -3788,6 +4110,16 @@ pub const Engine = struct {
     pos: Position = .{},
     search: Search = .{},
     depth_limit: Depth = 3,
+
+    pub fn init(allocator: std.mem.Allocator) @This() {
+        return .{ .allocator = allocator };
+    }
+
+    pub fn deinit(self: @This()) void {
+        if (self.search.model) |model| {
+            model.deinit();
+        }
+    }
 
     pub fn position(self: *@This(), sfen: Str) void {
         self.pos.setSfen(sfen, &self.state_infos[0]);
@@ -3826,6 +4158,8 @@ pub const Engine = struct {
                 } else if (strEql(cmd, "getoption")) {
                     try writer.print("Options[DepthLimit] == {d}\n", .{self.depth_limit});
                 } else if (strEql(cmd, "isready")) {
+                    self.search.model = try nnue.Model.init(self.allocator, nnue.BIN);
+                    try writer.print("info string architecture: {s}\n", .{self.search.model.?.architecture});
                     try writer.print("readyok\n", .{});
                 } else if (strEql(cmd, "usinewgame")) {
                     self.position(DEFAULT_SFEN);
@@ -3896,6 +4230,9 @@ pub const Engine = struct {
                     const nodes = perft(self.allocator, &self.pos, depth);
                     time = milliTimestamp() - time;
                     try writer.print("info depth {d} nodes {d} time {d}\n", .{ depth, nodes, time });
+                } else if (strEql(cmd, "eval")) {
+                    self.pos.refreshAccumulations(&self.search.model.?);
+                    try writer.print("{d}\n", .{self.search.evaluate(&self.pos)});
                 }
             }
         }
@@ -3919,7 +4256,8 @@ test "Engine" {
         .{ .request = "isready", .expected = "readyok\n" },
         .{ .request = "usinewgame", .expected = "" },
     };
-    var engine = Engine{ .allocator = tst.allocator };
+    var engine = Engine.init(tst.allocator);
+    defer engine.deinit();
     for (data_list) |data| {
         const response = try engine.run(data.request);
         defer tst.allocator.free(response);
@@ -3939,7 +4277,8 @@ pub fn main() !void {
     const allocator = gpa.allocator();
     const reader = std.io.getStdIn().reader();
     const writer = std.io.getStdOut().writer();
-    var engine = Engine{ .allocator = allocator };
+    var engine = Engine.init(allocator);
+    defer engine.deinit();
     engine.position(DEFAULT_SFEN);
     var thread: ?std.Thread = null;
     while (true) {

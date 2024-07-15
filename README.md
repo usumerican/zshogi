@@ -12,6 +12,8 @@ JavaScript から利用できる WebAssembly 版ライブラリ、
 
 将棋プログラミングについては、[やねうら王](https://github.com/yaneurao/YaneuraOu)を参考にしました。
 
+評価関数については、やねうら王の[NNUE-K-P-256-32-32用評価関数バイナリその2](https://github.com/yaneurao/YaneuraOu/releases/tag/20190212_k-p-256-32-32)を使っています。
+
 ## ライブラリの使い方
 
 ```
@@ -71,7 +73,7 @@ EOF
 合法手生成の性能を計測します。
 
 ```
-echo "matsuri\nperft 4" | zig build run --release=fast
+echo "usi\nisready\nmatsuri\nperft 4" | zig build run --release=fast
 ```
 
 WebAssembly 版ライブラリと Web アプリのビルドには、Node.js も必要です。

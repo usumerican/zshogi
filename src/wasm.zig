@@ -4,7 +4,7 @@ const builtin = @import("builtin");
 const main = @import("main.zig");
 
 const allocator = if (builtin.is_test) tst.allocator else std.heap.wasm_allocator;
-var engine = main.Engine{ .allocator = allocator };
+var engine = main.Engine.init(allocator);
 
 const Slice = packed struct {
     addr: usize,

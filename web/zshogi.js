@@ -7,7 +7,7 @@ export class Engine {
   }
 
   static async init() {
-    const memory = new WebAssembly.Memory({ initial: 32, maximum: 1024 });
+    const memory = new WebAssembly.Memory({ initial: 128 });
     const instance = await instatiate({ env: { memory, dateNow: () => BigInt(Date.now()) } });
     return new Engine(memory, instance);
   }
