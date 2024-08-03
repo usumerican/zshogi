@@ -4,25 +4,25 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
     <title>Z Shogi</title>
-    <link rel="stylesheet" href="web/index.css" />
+    <link rel="manifest" href="manifest.json" />
     <link rel="icon" type="image/png" href="icon.png" />
     <link rel="apple-touch-icon" href="icon.png" />
+    <link rel="stylesheet" href="web/index.css" />
     <script type="module" src="web/index.js"></script>
   </head>
   <body id="app">
-    <pre id="responseOutput"></pre>
-    <textarea id="requestInput">
-usi
-setoption name DepthLimit value 5
-getoption
-isready
-usinewgame
-go
-</textarea
-    >
     <div class="ToolBar">
-      <button id="runButton">Run</button>
-      <button id="terminateButton">Terminate</button>
+      <select id="startSelect"></select>
+      <button id="startButton">Start</button>
+    </div>
+    <pre id="engineOutput"></pre>
+    <canvas id="mainCanvas"></canvas>
+    <div class="ToolBar">
+      <select id="colorSelect0"></select>
+      <select id="colorSelect1"></select>
+      <button id="thinkButton">Think</button>
+      <button id="stopButton">Stop</button>
+      <button id="undoButton">Undo</button>
     </div>
   </body>
 </html>

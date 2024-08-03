@@ -1,3 +1,21 @@
+:root {
+  --background: #eee;
+  --border: 1px solid #999;
+  --gap: 2px;
+  --padding: 2px;
+}
+* {
+  box-sizing: border-box;
+  color: #000;
+  font:
+    0.9rem 'Helvetica Neue',
+    Arial,
+    'Apple Color Emoji',
+    'Segoe UI Emoji',
+    sans-serif;
+  margin: 0;
+  overflow: hidden;
+}
 html {
   height: 100%;
   overflow: hidden;
@@ -7,24 +25,6 @@ body {
   max-width: 100vh;
   height: 100%;
   margin: 0 auto;
-}
-* {
-  box-sizing: border-box;
-  color: #000;
-  font:
-    1rem 'Helvetica Neue',
-    Arial,
-    'Apple Color Emoji',
-    'Segoe UI Emoji',
-    sans-serif;
-  margin: 0;
-  overflow: hidden;
-}
-:root {
-  --background: #eee;
-  --border: 1px solid #999;
-  --gap: 2px;
-  --padding: 2px;
 }
 button {
   appearance: none;
@@ -48,6 +48,13 @@ pre {
   white-space: pre-wrap;
   overflow-wrap: break-word;
 }
+select {
+  appearance: menulist-button;
+  border: var(--border);
+  border-radius: var(--gap);
+  cursor: pointer;
+  width: 100%;
+}
 textarea {
   border: var(--border);
   padding: var(--padding);
@@ -67,5 +74,6 @@ textarea {
   display: grid;
   gap: var(--gap);
   padding: var(--padding);
-  grid-template-rows: 2fr 1fr 3rem;
+  grid-template-rows: 3rem 1fr 4fr 3rem;
+  place-items: stretch;
 }
