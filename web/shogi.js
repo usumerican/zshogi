@@ -2,7 +2,7 @@ const BLACK = 0;
 const WHITE = 1;
 export const COLOR_NB = 2;
 
-function colorTurn(c) {
+export function colorTurn(c) {
   return c ^ 1;
 }
 
@@ -16,7 +16,7 @@ function colorFromUsi(usi) {
 
 export const FILE_NB = 9;
 
-function fileToUsi(f) {
+export function fileToUsi(f) {
   return '123456789'[f];
 }
 
@@ -26,7 +26,7 @@ function fileFromUsi(usi) {
 
 export const RANK_NB = 9;
 
-function rankToUsi(r) {
+export function rankToUsi(r) {
   return 'abcdefghi'[r];
 }
 
@@ -73,7 +73,7 @@ export function pieceGetColor(pc) {
   return (pc & 0b10000) >> 4;
 }
 
-function pieceGetPieceRaw(pc) {
+export function pieceGetPieceRaw(pc) {
   return pc & 0b00111;
 }
 
